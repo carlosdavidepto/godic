@@ -18,8 +18,8 @@ should be injected.
 In terms of engineering, the generated code combines the only the minimum
 number of patterns necessary for a useful DIC:
 
-- Factory/Builder: to abstract the complexity of producing an object
-- ServiceLocator: 
+- Factory/Builder: to abstract the complexity of producing an instance
+- Service Locator: to easily locate produced instances
 
 # Status
 
