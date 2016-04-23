@@ -30,28 +30,30 @@ type Generator struct {
 	Deps []Dep
 }
 
-// Dep is the definition for a dependency
+// Dep is the definition for a dependency.
 type Dep struct {
   // Type is the Go type of the object to be created when the lookup/create
-  // function is invoked
-  Type,
+  // function is invoked.
+  Type string
 
   // Name is used in constructing the name of the struct field, lookup and
   // create function. As an example, if the Name is "dependency", the struct
   // field name will be "dependency", the create function will be named
   // "NewDependency" and the lookup function will be named just like a getter,
-  // i.e. "Dependency" (note that lookup/create are public, but not the field)
-  Name,
+  // i.e. "Dependency" (note that lookup/create are public, but the struct
+  // field is private).
+  Name string
 
   // Func is the text for the Go code that will be the body of the builder
   // function. Providing only the body of the function only avoids repetition;
   // the lookup function always has the same structure, and the signatures
   // for both the lookup and create functions are similar and easy to generate
-  // automatically 
+  // automatically.
   Func string
 }
 
-// Generate renders the code template for 
+// Generate renders the code template with the Generator properties to create
+// the final DIC code which will be output to STDOUT.
 func (c *Generator) Generate() {
 	t, err := template.
 		New("generate").
