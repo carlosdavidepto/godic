@@ -18,15 +18,18 @@ should be injected.
 In terms of engineering, the generated code combines the only the minimum
 number of patterns necessary for a useful DIC:
 
-- Factory/Builder: to abstract the complexity of producing an instance
-- Service Locator: to easily locate produced instances
+- Factory/Builder: to abstract the complexity of producing an instance;
+- Service Locator: to easily locate produced instances and hold only one
+  instance of each dependency;
+- Lazy loading: to prevent instantiation of dependencies not needed at run time.
 
 # Status
 
 `godic` is under development and should be considered experimental. However,
-due to its simplicity and its extremely narrow scope, it is ok to use for
-production use *as long as its version is locked*. There will be
-no guarantees of API stability at this point.
+due to its simplicity and its extremely narrow scope, it can be used in
+production grade projects *as long as its version is locked*. There will be
+no guarantees of API stability at this point. Since this is a code generation
+tool, the impact of changes to the generated code should be minimal, though.
 
 # Features/Objectives
 
@@ -46,65 +49,10 @@ no guarantees of API stability at this point.
 `godic` is designed to be used with `go generate`, but it's not mandatory.
 
 To use `godic` to generate a DIC, simply create a package in your project with
-an executable that will produce the DIC code:
+an executable that will produce the DIC code. Run this executable, preferably
+(but not necessarily) with `go generate` to produce the code for the
+DI container.
 
-    package main
-
-    import "github.com/carlosdavidepto/godic"
-
-    func main() {
-
-      c := &godic.Generator{
-        Package: "mypackage",
-        Type:    "DIContainer",
-        Deps: []godic.Dep{
-          godic.Dep{"*ADependency", "aDependency", `{
-            return &ADependency{}
-          }`},
-        },
-      }
-
-      c.Generate()
-    }
-
-The program above, when executed, will output the following Go code to `STDOUT`:
-
-    package mypackage
-
-    type DIContainer struct {
-      aDependency *ADependency
-    }
-
-    func (c *DIContainer) NewADependency() *ADependency {
-      return &ADependency{}
-    }
-
-    func (c *DIContainer) ADependency() *ADependency {
-      if c.aDependency == nil {
-        c.aDependency = c.NewADependency()
-      }
-
-      return c.aDependency
-    }
-
-Then proceed as normal in the rest of the code:
-
-    package otherpackage
-
-    import "mypackage"
-
-    func main() {
-
-      dic := &mypackage.DIC{}
-
-      o := &NewObjectWithADependency{
-        dependency: dic.ADependency()
-      }
-
-      p := &NewOtherObject{
-        dependency: dic.ADependency() // here the same instance is reused
-      }
-    }
-
-Check the `examples` directory for a more complete example of how it all ties
-together.
+Read the [documentation](https://godoc.org/github.com/carlosdavidepto/godic)
+for the API reference and check the `examples` directory for a sample of
+how the generation code and the usage (i.e app/project) code tie together.

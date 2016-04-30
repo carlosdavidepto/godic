@@ -1,112 +1,231 @@
 /*
 Package godic provides a simple utility to auto-generate idiomatic dependency
 injection containers that can benefit from Go's type checking system.
+
+Example usage:
+
+		package main
+
+		import "github.com/carlosdavidepto/godic"
+
+		func main() {
+
+			// get a new generator with default values
+			g := godic.NewGenerator()
+			g.AddDependency("configOption", "int", "{ return 10 }")
+			g.Generate()
+		}
+
+This generation program would yield the following code:
+
+		package main
+
+		type Container struct{
+			configOption int
+		}
+
+		func (c *Container) NewConfigOption() int { return 10 }
+
+		func (c *Container) ConfigOption() int {
+			if c.configOption == nil {
+				c.configOption = c.NewConfigOption()
+			}
+			return c.configOption
+		}
+
+See the code in the examples directory for a more complete usage example.
 */
 package godic
 
 import (
+	"io"
 	"os"
 	"text/template"
 	"unicode"
 )
 
-// Generator defines what a dependency injection container's code is going to
-// look like. The properties of an instance of Generator directly map to
-// source code entities in the produced code.
-type Generator struct {
+type (
+	opts struct {
+		Package string
+		Imports []string
+		Name    string
+		Type    string
+	}
 
-	// Package specifies which package the container is going
-	// to belong to.
-	Package string
+	dep struct {
+		Name string
+		Type string
+		Func string
+	}
 
-	// Imports is the list of imports the generated code will need.
-	Imports []string
+	// Generator implements a static Go code generation mechanism for dependency
+	// injection containers.
+	Generator struct {
+		opts opts
+		deps []dep
+	}
+)
 
-	// Type is the Go type of the generated container.
-	Type string
-
-	// Deps is the list of dependency definitions that will make up the
-	// lookup/create methods and the properties of the container.
-	Deps []Dep
+func defaultOpts() opts {
+	return opts{
+		Package: "main",
+		Name:    "c",
+		Type:    "Container",
+	}
 }
 
-// Dep is the definition for a dependency.
-type Dep struct {
-	// Type is the Go type of the object to be created when the lookup/create
-	// function is invoked.
-	Type string
-
-	// Name is used in constructing the name of the struct field, lookup and
-	// create function. As an example, if the Name is "dependency", the struct
-	// field name will be "dependency", the create function will be named
-	// "NewDependency" and the lookup function will be named just like a getter,
-	// i.e. "Dependency" (note that lookup/create are public, but the struct
-	// field is private).
-	Name string
-
-	// Func is the text for the Go code that will be the body of the builder
-	// function. Providing only the body of the function only avoids repetition;
-	// the lookup function always has the same structure, and the signatures
-	// for both the lookup and create functions are similar and easy to generate
-	// automatically.
-	Func string
+// NewGenerator returns a new instance of a Generator, preloaded with default
+// parameters.
+func NewGenerator() *Generator {
+	return &Generator{
+		opts: defaultOpts(),
+	}
 }
 
-// Generate renders the code template with the Generator properties to create
-// the final DIC code which will be output to STDOUT.
-func (c *Generator) Generate() {
+// SetPackage overrides the package that the generated code file will belong
+// to. Default is main.
+func (g *Generator) SetPackage(p string) *Generator {
+	g.opts.Package = p
+	return g
+}
+
+// AddImports registers the import statements to be added to the generated file
+func (g *Generator) AddImports(l ...string) *Generator {
+	g.opts.Imports = append(g.opts.Imports, l...)
+	return g
+}
+
+// Set name overrides the receiver variable name for the container methods in
+// the generated code. Default is "c".
+func (g *Generator) SetName(n string) *Generator {
+	g.opts.Name = n
+	return g
+}
+
+// Set type overrides the type of the container struct in the generated code.
+// Default is "Container".
+func (g *Generator) SetType(t string) *Generator {
+	g.opts.Type = t
+	return g
+}
+
+// AddDependency registers a new dependency for the generated code.
+//
+// Each dependency that is registered will create:
+//
+// - A field in the container struct;
+//
+// - A "create" method, which builds new instances of a dependency;
+//
+// - A "lookup" method, which resolves (calling the create method, if needed)
+// an instance of a dependency.
+//
+// AddDependency receives three parameters:
+//
+// - The name of the dependency, which will be used to determine the name of
+// the struct field, lookup method and create method;
+//
+// - The type of the dependency (for all of the above);
+//
+// - The body of the create function (which can reference the container to
+// fetch other dependencies);
+func (g *Generator) AddDependency(n, t, f string) *Generator {
+	g.deps = append(g.deps, dep{n, t, f})
+	return g
+}
+
+// Generate writes the generated code to the standard output.
+func (g *Generator) Generate() {
+	g.Fgenerate(os.Stdout)
+}
+
+// Fgenerate writes the generated code to the io.Writer specified as parameter.
+func (g *Generator) Fgenerate(w io.Writer) {
+	tpkg := templateBuilder("package", `package {{ .Package }}{{"\n\n"}}`)
+
+	timp := templateBuilder("imports", `import {{ if eq (len .Imports) 1 }}"{{ index .Imports 0 }}"{{else}}(
+{{ range .Imports }}{{"\t"}}"{{ . }}"
+{{ end }}){{ end }}{{"\n\n"}}`)
+
+	ttyp := templateBuilder("type", `type {{ .Opts.Type }} struct{{"{"}}
+{{- if gt (len .Deps) 0 -}}{{ "\n" }}
+  {{- range .Deps -}}
+    {{- "\t" }}{{ .Name }} {{ .Type -}}{{ "\n" }}
+  {{- end -}}
+{{- end -}}
+}{{"\n\n"}}`)
+
+	tdep := templateBuilder("deps", `{{- $cname := .Opts.Name -}}
+{{- $ctype := .Opts.Type -}}
+{{- range .Deps -}}
+func ({{ $cname }} *{{ $ctype }}) New{{ .Name | ucfirst }}() {{ .Type }} {{ .Func }}{{ "\n\n" }}
+func ({{ $cname }} *{{ $ctype }}) {{ .Name | ucfirst }}() {{ .Type }} {
+{{ "\t" }}if {{ $cname }}.{{ .Name | lcfirst }} == nil {
+{{ "\t\t" }}{{ $cname }}.{{ .Name | lcfirst }} = {{ $cname }}.New{{ .Name | ucfirst }}()
+{{ "\t" }}}
+{{ "\t" }}return {{ $cname }}.{{ .Name | lcfirst }}
+}{{ "\n\n" }}
+{{- end -}}`)
+
+	err := tpkg.Execute(w, g.opts)
+
+	if err != nil {
+		panic(err)
+	}
+
+	if len(g.opts.Imports) > 0 {
+		err = timp.Execute(w, g.opts)
+
+		if err != nil {
+			panic(err)
+		}
+	}
+
+	gWithPublicFields := struct {
+		Opts opts
+		Deps []dep
+	}{
+		g.opts,
+		g.deps,
+	}
+
+	err = ttyp.Execute(w, gWithPublicFields)
+
+	if err != nil {
+		panic(err)
+	}
+
+	if len(g.deps) > 0 {
+		err = tdep.Execute(w, gWithPublicFields)
+
+		if err != nil {
+			panic(err)
+		}
+	}
+}
+
+func templateBuilder(name, tpl string) *template.Template {
 	t, err := template.
-		New("generate").
+		New(name).
 		Funcs(template.FuncMap{
 			"ucfirst": ucfirst,
 			"lcfirst": lcfirst,
 		}).
-		Parse(tplstr)
+		Parse(tpl)
 
 	if err != nil {
 		panic(err)
 	}
 
-	err = t.Execute(os.Stdout, c)
-
-	if err != nil {
-		panic(err)
-	}
+	return t
 }
 
-var tplstr = `package {{ .Package }}
-
-{{ range .Imports }}import "{{.}}"
-{{ end }}
-
-type {{ .Type }} struct {
-{{ range .Deps }} {{ .Name | lcfirst }} {{ .Type }}
-{{ end }}{{ "}" }}
-
-{{ $ctype := .Type }}
-{{ range .Deps }}func (c *{{ $ctype }}) New{{ .Name | ucfirst }}() {{ .Type }} {{ .Func }}
-
-func (c *{{ $ctype }}) {{ .Name | ucfirst }}() {{ .Type }} {
-  if c.{{ .Name | lcfirst }} == nil {
-    c.{{ .Name | lcfirst }} = c.New{{ .Name | ucfirst }}()
-  }
-
-  return c.{{ .Name | lcfirst }}
-}
-
-{{ end }}
-`
-
-// ucfirst is an internal utility function to make the first character of a
-// string upper case (i.e. an exported Go name)
 func ucfirst(s string) string {
 	tmp := []rune(s)
 	tmp[0] = unicode.ToUpper(tmp[0])
 	return string(tmp)
 }
 
-// lcfirst is an internal utility function to make the first character of a
-// string lower case (i.e. a non-exported Go name)
 func lcfirst(s string) string {
 	tmp := []rune(s)
 	tmp[0] = unicode.ToLower(tmp[0])
