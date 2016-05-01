@@ -95,14 +95,14 @@ func (g *Generator) AddImports(l ...string) *Generator {
 	return g
 }
 
-// Set name overrides the receiver variable name for the container methods in
+// SetName overrides the receiver variable name for the container methods in
 // the generated code. Default is "c".
 func (g *Generator) SetName(n string) *Generator {
 	g.opts.Name = n
 	return g
 }
 
-// Set type overrides the type of the container struct in the generated code.
+// SetType overrides the type of the container struct in the generated code.
 // Default is "Container".
 func (g *Generator) SetType(t string) *Generator {
 	g.opts.Type = t
